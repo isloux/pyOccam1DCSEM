@@ -2,57 +2,50 @@
 
 from distutils.core import setup
 from distutils.command.build import build
-from distutils.command.install import install
-from distutils.command.clean import clean
-from os import system,chdir
+import os
 import sys
-import platform
-import re
+import shutil
+import subprocess
 from pyoccam1dcsem import __version__
 
-class configure(install):
+class CMakeBuild(build):
     def run(self):
-        s=''.join(sys.argv)
-        l=re.search("--prefix=",s)
-        prefix=""
-        if l!=None:
-            s=s[l.end():]
-            l=re.search(" ",s)
-            if l!=None:
-                prefix=" --prefix="+s[:l.start()]
-            else:
-                prefix=" --prefix="+s
-        chdir("pyoccam1dcsem")
-        if platform.system()=="Linux":
-       	    system("libtoolize")
+        build_dir = os.path.abspath(self.build_temp)
+        project_dir = os.path.abspath('.')
+
+        # Create the build directory
+        if not os.path.exists(build_dir):
+            os.makedirs(build_dir)
+
+        # Prepare CMake command
+        pyoccam_dir = os.path.join(project_dir, 'pyoccam1dcsem')
+        cmake_command = f"cmake -DMKL_DIR=$MKLROOT/lib/cmake/mkl {pyoccam_dir}"
+
+        # Run CMake
+        subprocess.call(cmake_command, shell=True, cwd=build_dir)
+
+        # Run make
+        subprocess.call(['make'], cwd=build_dir)
+
+        # Create build/lib directory
+        if not os.path.exists(self.build_lib):
+            os.makedirs(self.build_lib)
+
+        # Copy the library to the package
+        if sys.platform == "linux" or sys.platform == "linux2":
+            lib_name = 'liboccam1dcsem.so'
+        elif sys.platform == "darwin":
+            lib_name = 'liboccam1dcsem.dylib'
         else:
-            system("glibtoolize")
-        system("aclocal")
-        system("autoconf")
-        system("automake --add-missing")
-        system("autoconf")
-        system("./configure"+prefix)
-        chdir("..")
-        system("grep -v 'prefix' setup.cfg > temp1cfg")
-        sprefix="prefix="+s
-        system("echo "+sprefix+" >> temp1cfg")
-        system("mv temp1cfg setup.cfg")
-        system("tail -1 setup.cfg | cut -d= -f2 > pyoccam1dcsem/prefix.foo")
-        prefix=open("pyoccam1dcsem/prefix.foo","r").readlines()
-        with open("pyoccam1dcsem/prefix.py","w") as fout:
-            fout.write("prefix=\"{}\"\n".format(prefix[0].rstrip()))
+            raise Exception("Unsupported platform")
 
-class clean_(clean):
-    def run(self):
-        system("rm -rf build")
-        chdir("pyoccam1dcsem")
-        system("make clean")
-        system("rm -f prefix.*")
+        lib_path = os.path.join(build_dir, lib_name)
+        target_dir = os.path.join(self.build_lib, 'pyoccam1dcsem')
 
-class install_(install):
-    def run(self):
-        chdir("pyoccam1dcsem")
-        system("make install")
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir)
+            
+        shutil.copy(lib_path, target_dir)
 
 setup(
     name='pyOccam1DCSEM',
@@ -65,5 +58,5 @@ setup(
     long_description=open('README.txt').read(),
     classifiers=["Programming Language :: Python",
         "Programming Language :: Fortran"],
-    cmdclass={'configure': configure, 'clean': clean_,'lib': install_}
+    cmdclass={'build': CMakeBuild}
 )
